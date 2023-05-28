@@ -1,6 +1,8 @@
+import {decode} from '@mapbox/polyline';
 import React, {useEffect, useState} from 'react';
 import MapView, {Marker, Polyline, PROVIDER_GOOGLE} from 'react-native-maps';
 import {
+  Image,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -12,7 +14,6 @@ import {
 import Geolocation from '@react-native-community/geolocation';
 import {API_KEY} from './env';
 import {windowWidth} from './utility/helper';
-import Carousel from 'react-native-reanimated-carousel';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
 
 let time = 0;
@@ -40,7 +41,7 @@ function App(): JSX.Element {
     latitude: 10,
     longitude: 10,
   });
-  const [showDirection, setShowDirection] = useState<boolean>(false);
+  const [coOrdinates, setCoOrdinates] = useState<any>([]);
   const [restaurants, setRestaurants] = useState<RestaurantsInterface[]>([]);
   const [selectedRestaurants, setSelectedRestaurants] =
     useState<RestaurantsInterface | null>(null);
@@ -56,23 +57,22 @@ function App(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    if (time < Date.now()) {
-      fetch(
-        `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=37.4226711,-122.0849872&radius=1000&type=restaurant&key=${API_KEY}`,
-        {
-          method: 'get',
-          headers: {},
-        },
-      )
-        .then(res => {
-          return res.json();
-        })
-        .then(res => {
-          setRestaurants(res.results);
-          time = Date.now() + 10000;
-        });
+    if (myLocation.latitude === 10) {
+      return;
     }
-  }, []);
+    (async () => {
+      if (time < Date.now()) {
+        const res = await fetch(
+          `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${myLocation.latitude},${myLocation.longitude}&radius=1500&type=restaurant&key=${API_KEY}`,
+        );
+        const respJson = await res.json();
+        console.log(respJson, 65);
+        setRestaurants(respJson.results);
+        setSelectedRestaurants(respJson.results[0]);
+        time = Date.now() + 10000;
+      }
+    })();
+  }, [myLocation.latitude, myLocation.longitude]);
 
   const renderRestaurants =
     restaurants &&
@@ -85,86 +85,103 @@ function App(): JSX.Element {
             longitude: item.geometry.location.lng,
           }}
           onPress={() => {
+            setCoOrdinates([]);
             setSelectedRestaurants(item);
-          }}
-          image={{
-            uri: 'https://i.ibb.co/h9zsxNB/Group-5.png',
-            scale: selectedRestaurants
-              ? selectedRestaurants.place_id === item.place_id
-                ? 1
-                : 0.6
-              : 0.6,
-          }}
-        />
+          }}>
+          <View style={{...styles.flexCenter, width: 60, padding: 10}}>
+            <View
+              style={{
+                ...styles.customMarker,
+                width: selectedRestaurants
+                  ? selectedRestaurants!.place_id === item.place_id
+                    ? 60
+                    : 50
+                  : 50,
+                padding: selectedRestaurants
+                  ? selectedRestaurants!.place_id === item.place_id
+                    ? 8
+                    : 3
+                  : 3,
+              }}>
+              <Image
+                style={styles.tinyLogo}
+                source={{uri: 'https://i.ibb.co/HPJmjTj/Vector.png'}}
+              />
+              <Text style={{color: 'white'}}>{item.rating}</Text>
+              <View style={styles.arrow} />
+            </View>
+          </View>
+        </Marker>
       );
     });
 
-  console.log(selectedRestaurants);
-
-  const selectedRestaurantCoordicates = selectedRestaurants
-    ? {
-        latitude: selectedRestaurants.geometry.location.lat,
-        longitude: selectedRestaurants.geometry.location.lng,
-      }
-    : {
-        latitude: 0,
-        longitude: 0,
+  const getCoordicates = async () => {
+    if (!selectedRestaurants) {
+      return null;
+    }
+    const res = await fetch(
+      `https://maps.googleapis.com/maps/api/directions/json?origin=${myLocation.latitude},${myLocation.longitude}&destination=${selectedRestaurants.geometry.location.lat},${selectedRestaurants.geometry.location.lng}&key=${API_KEY}`,
+    );
+    let respJson = await res.json();
+    let points = decode(respJson.routes[0].overview_polyline.points);
+    let coords = points.map((point: any[]) => {
+      return {
+        latitude: point[0],
+        longitude: point[1],
       };
+    });
+    setCoOrdinates(coords);
+  };
 
-  const listOfRestaurants = restaurants.length ? (
-    restaurants.map((item, index) => {
-      return (
-        <View style={styles.restaurantDetailsContainer} key={index}>
-          <View style={styles.restaurantDetails}>
-            <Text style={styles.headingMain}>{item.name}</Text>
-            <View style={styles.section}>
-              <Text style={styles.heading}>Rating</Text>
-              <Text>{item.rating}</Text>
-            </View>
-            <View style={styles.section}>
-              <Text style={styles.heading}>Vicinity</Text>
-              <Text>{item.vicinity}</Text>
-            </View>
-            <View style={styles.section}>
-              <Text style={styles.heading}>Category</Text>
-              <Text style={styles.capitalize}>{item?.types.join(', ')}</Text>
-            </View>
-            <View style={styles.actionContainer}>
-              <TouchableOpacity
-                style={{
-                  ...styles.goingButton,
-                  width: 120,
-                  marginRight: 10,
-                  backgroundColor: '#F3A242',
-                }}
-                onPress={() => {
-                  setShowDirection(true);
-                }}
-                activeOpacity={0.8}>
-                <Text style={styles.goingText}>Direction</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.goingButton} activeOpacity={0.8}>
-                <Text style={styles.goingText}>Going</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+  const renderSelectedRestaurant = selectedRestaurants && (
+    <View style={styles.restaurantDetailsContainer}>
+      <View style={styles.restaurantDetails}>
+        <Text style={styles.headingMain}>{selectedRestaurants.name}</Text>
+        <View style={styles.section}>
+          <Text style={styles.heading}>Rating</Text>
+          <Text>{selectedRestaurants.rating}</Text>
         </View>
-      );
-    })
-  ) : (
-    <></>
+        <View style={styles.section}>
+          <Text style={styles.heading}>Vicinity</Text>
+          <Text>{selectedRestaurants.vicinity}</Text>
+        </View>
+        <View style={styles.section}>
+          <Text style={styles.heading}>Category</Text>
+          <Text style={styles.capitalize}>
+            {selectedRestaurants?.types.join(', ')}
+          </Text>
+        </View>
+        <View style={styles.actionContainer}>
+          <TouchableOpacity
+            style={{
+              ...styles.goingButton,
+              width: 120,
+              marginRight: 10,
+              backgroundColor: '#F3A242',
+            }}
+            onPress={getCoordicates}
+            activeOpacity={0.8}>
+            <Text style={styles.goingText}>Direction</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.goingButton} activeOpacity={0.8}>
+            <Text style={styles.goingText}>Going</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
   );
 
   return (
     <GestureHandlerRootView style={{flex: 1}}>
       <SafeAreaView style={styles.container}>
-        <StatusBar barStyle={'default'} />
+        <StatusBar barStyle={'light-content'} />
         <ScrollView contentInsetAdjustmentBehavior="automatic">
           <View>
             <MapView
               zoomEnabled={true}
               loadingEnabled={true}
               zoomControlEnabled={true}
+              followsUserLocation={true}
               showsMyLocationButton={true}
               showsUserLocation={true}
               provider={PROVIDER_GOOGLE}
@@ -175,20 +192,18 @@ function App(): JSX.Element {
                 longitudeDelta: 0.0321,
               }}>
               {renderRestaurants}
-              {showDirection && (
+              {coOrdinates.length ? (
                 <Polyline
-                  coordinates={[myLocation, selectedRestaurantCoordicates]}
-                  strokeWidth={3}
+                  strokeColor={'#1c1c1c'}
+                  coordinates={coOrdinates}
+                  strokeWidth={5}
                 />
+              ) : (
+                <></>
               )}
             </MapView>
           </View>
-        </ScrollView>
-        <ScrollView
-          horizontal={true}
-          showsHorizontalScrollIndicator={false}
-          pagingEnabled={true}>
-          {listOfRestaurants}
+          <View>{renderSelectedRestaurant}</View>
         </ScrollView>
       </SafeAreaView>
     </GestureHandlerRootView>
@@ -259,6 +274,34 @@ const styles = StyleSheet.create({
   goingText: {
     color: 'white',
     fontSize: 18,
+  },
+  flexCenter: {
+    display: 'flex',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  customMarker: {
+    backgroundColor: '#F85151',
+    borderRadius: 8,
+    borderColor: '#BA2222',
+    borderWidth: 1,
+    display: 'flex',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  tinyLogo: {
+    width: 15,
+    height: 15,
+    marginTop: 4,
+    marginRight: 2,
+  },
+  arrow: {
+    position: 'absolute',
+    bottom: -5,
+    backgroundColor: '#BA2222',
   },
 });
 
